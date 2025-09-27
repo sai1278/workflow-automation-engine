@@ -1,0 +1,57 @@
+# --------------------
+# Python
+# --------------------
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+*.so
+*.egg-info/
+.env
+.venv/
+venv/
+.mypy_cache/
+.pytest_cache/
+.coverage
+
+# --------------------
+# Node / React (if any frontend)
+# --------------------
+node_modules/
+dist/
+build/
+.npm/
+
+# --------------------
+# Docker
+# --------------------
+*.pid
+*.log
+docker-compose.override.yml
+.docker/
+
+# --------------------
+# Secrets / Keys
+# --------------------
+*.key
+*.pem
+*.crt
+*.secret
+*.env.local
+.env.*
+
+# --------------------
+# System / IDE
+# --------------------
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+
+# --------------------
+# Build / Artifacts
+# --------------------
+*.tar.gz
+*.zip
+*.bak
+*.tmp
