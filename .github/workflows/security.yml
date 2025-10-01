@@ -1,0 +1,19 @@
+name: Security Scan
+
+on:
+  push:
+    branches: [ "main" ]
+  pull_request:
+
+jobs:
+  security:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+      - name: Install Trivy
+        run: |
+          sudo apt-get install wget -y
+          wget https://github.com/aquasecurity/trivy/releases/latest/download/trivy_Linux-64bit.deb
+          sudo dpkg -i trivy_Linux-64bit.deb
+      - name: Run Trivy on Docker image
+        run: trivy image my-backend:latest
