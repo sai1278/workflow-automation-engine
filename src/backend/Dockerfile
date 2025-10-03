@@ -18,6 +18,11 @@ RUN pip install --prefix=/install --no-cache-dir -r requirements.txt
 FROM python:3.11-slim
 ENV PYTHONDONTWRITEBYTECODE=1 PYTHONUNBUFFERED=1
 
+# Install tini for PID1 signal handling
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends tini \
+    && rm -rf /var/lib/apt/lists/*
+
 # Create non-root user
 RUN groupadd -r app && useradd -r -g app -d /home/app -m -s /sbin/nologin app
 
@@ -37,6 +42,8 @@ USER app
 # Expose port
 EXPOSE 8000
 
-# Start FastAPI with uvicorn (no reload in production)
-# Using multiple workers for better concurrency
-CMD ["uvicorn", "app.main:create_app", "--factory", "--host", "0.0.0.0", "--port", "8000", "--workers", "4"]
+# Use tini as entrypoint to forward signals correctly
+ENTRYPOINT ["/usr/bin/tini", "--"]
+
+# Start FastAPI with uvicorn in production mode (no reload)
+CMD ["uvicorn", "app.main:create_app", "--factory", "--host", "0.0.0.0", "--port", "8000", "--workers", "4", "--loop", "uvloop"]

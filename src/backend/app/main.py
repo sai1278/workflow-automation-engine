@@ -4,11 +4,27 @@ from fastapi.responses import JSONResponse
 from fastapi.exceptions import RequestValidationError
 from starlette.middleware.cors import CORSMiddleware
 from starlette.middleware.trustedhost import TrustedHostMiddleware
+from starlette.middleware.base import BaseHTTPMiddleware
+from starlette.responses import Response
+# Rate limiting
+from slowapi import Limiter, _rate_limit_exceeded_handler
+from slowapi.util import get_remote_address
+from slowapi.errors import RateLimitExceeded
 
-# Use absolute imports
 from app.config import get_settings
 from app.logger import get_logger
 from app.api import router as api_router
+
+
+class SecurityHeadersMiddleware(BaseHTTPMiddleware):
+    async def dispatch(self, request, call_next):
+        response: Response = await call_next(request)
+        response.headers["X-Frame-Options"] = "DENY"
+        response.headers["X-Content-Type-Options"] = "nosniff"
+        response.headers["Referrer-Policy"] = "no-referrer"
+        response.headers["Permissions-Policy"] = "geolocation=()"
+        response.headers["X-XSS-Protection"] = "1; mode=block"
+        return response
 
 
 def create_app() -> FastAPI:
@@ -27,7 +43,8 @@ def create_app() -> FastAPI:
     app.state.settings = settings
     app.state.logger = get_logger("app")
 
-    # Security middlewares
+    # ---------------- Security Middlewares ----------------
+    app.add_middleware(SecurityHeadersMiddleware)
     app.add_middleware(
         TrustedHostMiddleware, allowed_hosts=settings.allowed_hosts
     )
@@ -37,6 +54,11 @@ def create_app() -> FastAPI:
         allow_methods=["*"],
         allow_headers=["*"],
     )
+
+    # ---------------- Rate Limiting ----------------
+    limiter = Limiter(key_func=get_remote_address)
+    app.state.limiter = limiter
+    app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 
     # Routers
     app.include_router(api_router)
@@ -52,10 +74,11 @@ def create_app() -> FastAPI:
 
     # Health check endpoint
     @app.get("/health", response_class=JSONResponse)
-    async def health():
+    @limiter.limit("5/minute")  # limit health endpoint to 5 requests per minute per IP
+    async def health(request: Request):
         return {"status": "ok"}
 
-    # Global error handling
+    # ---------------- Error Handlers ----------------
     @app.exception_handler(Exception)
     async def global_exception_handler(request: Request, exc: Exception):
         app.state.logger.error(f"Unhandled error: {exc}")
@@ -72,7 +95,7 @@ def create_app() -> FastAPI:
             content={"detail": exc.errors()},
         )
 
-    # Lifecycle events
+    # ---------------- Lifecycle Events ----------------
     @app.on_event("startup")
     async def startup_event():
         app.state.logger.info(
@@ -86,5 +109,5 @@ def create_app() -> FastAPI:
     return app
 
 
-# 👇 Expose default app instance for pytest/uvicorn
+# 👇 Expose default app instance for uvicorn/pytest
 app = create_app()
