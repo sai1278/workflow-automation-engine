@@ -6,14 +6,24 @@ from starlette.middleware.cors import CORSMiddleware
 from starlette.middleware.trustedhost import TrustedHostMiddleware
 from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.responses import Response
+
 # Rate limiting
 from slowapi import Limiter, _rate_limit_exceeded_handler
 from slowapi.util import get_remote_address
 from slowapi.errors import RateLimitExceeded
 
+# Prometheus metrics
+from prometheus_fastapi_instrumentator import Instrumentator
+from prometheus_client import Counter, Histogram
+import time
+
 from app.config import get_settings
 from app.logger import get_logger
 from app.api import router as api_router
+
+# ---------------- Metrics (singletons) ----------------
+REQUEST_COUNTER = Counter("app_requests_total", "Total requests")
+REQUEST_LATENCY = Histogram("app_request_latency_seconds", "Request latency in seconds")
 
 
 class SecurityHeadersMiddleware(BaseHTTPMiddleware):
@@ -28,10 +38,8 @@ class SecurityHeadersMiddleware(BaseHTTPMiddleware):
 
 
 def create_app() -> FastAPI:
-    # Load settings
     settings = get_settings()
 
-    # Create FastAPI app with metadata
     app = FastAPI(
         title=settings.app_name,
         version=settings.version,
@@ -39,7 +47,6 @@ def create_app() -> FastAPI:
         redoc_url="/redoc",
     )
 
-    # Attach settings and logger to app state
     app.state.settings = settings
     app.state.logger = get_logger("app")
 
@@ -60,7 +67,19 @@ def create_app() -> FastAPI:
     app.state.limiter = limiter
     app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 
-    # Routers
+    # ---------------- Metrics Middleware ----------------
+    @app.middleware("http")
+    async def metrics_middleware(request: Request, call_next):
+        start_time = time.time()
+        response = await call_next(request)
+        REQUEST_COUNTER.inc()
+        REQUEST_LATENCY.observe(time.time() - start_time)
+        return response
+
+    # Instrument app for Prometheus
+    Instrumentator().instrument(app).expose(app, endpoint="/metrics")
+
+    # ---------------- Routers ----------------
     app.include_router(api_router)
 
     # Root endpoint
@@ -74,7 +93,7 @@ def create_app() -> FastAPI:
 
     # Health check endpoint
     @app.get("/health", response_class=JSONResponse)
-    @limiter.limit("5/minute")  # limit health endpoint to 5 requests per minute per IP
+    @limiter.limit("5/minute")
     async def health(request: Request):
         return {"status": "ok"}
 
@@ -109,5 +128,5 @@ def create_app() -> FastAPI:
     return app
 
 
-# 👇 Expose default app instance for uvicorn/pytest
+# Expose default app instance for uvicorn/pytest
 app = create_app()
